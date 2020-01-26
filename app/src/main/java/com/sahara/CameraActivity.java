@@ -1,5 +1,30 @@
 package com.sahara;
 
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.Matrix;
+import android.media.AudioManager;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.SystemClock;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.util.Rational;
+import android.util.Size;
+import android.view.Surface;
+import android.view.TextureView;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Locale;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.CameraX;
@@ -9,38 +34,38 @@ import androidx.camera.core.ImageCaptureConfig;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.core.PreviewConfig;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import android.content.pm.PackageManager;
-import android.content.res.Resources;
-import android.graphics.Bitmap;
-import android.graphics.Matrix;
-import android.os.Bundle;
-import android.util.Log;
-import android.util.Rational;
-import android.util.Size;
-import android.view.Surface;
-import android.view.TextureView;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.ImageButton;
-import android.widget.Toast;
-import java.io.ByteArrayOutputStream;
 
 
 public class CameraActivity extends AppCompatActivity {
 
 
     private int REQUEST_CODE_PERMISSIONS = 101;
-    private final String[] REQUIRED_PERMISSIONS = new String[]{"android.permission.CAMERA"};
-    TextureView textureView;
-    ImageButton capture;
-
+    private final String[] REQUIRED_PERMISSIONS = new String[]{"android.permission.CAMERA", "android.permission.RECORD_AUDIO"};
+    public TextureView textureView;
     public static String SERVER_IP;
     public static int SERVER_PORT;
     public static Communicate connObj;
     public static Communicate.SendData sendDataThread;
     public ImageCapture imgCap;
+    public TextToSpeech tts;
+    public String ttsStatus;
+    public SpeechRecognizer speechRecognizer;
+    public Intent speechRecognizerIntent;
+    public String speechText;
+    public ConstraintLayout mainLayout;
+    public Boolean capturing;
+    public byte [] imgBytes;
+    public Boolean imageCaptured;
+    public int clickType;
+
+    public CameraActivity()
+    {
+        capturing = false;
+        imageCaptured = false;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,8 +74,10 @@ public class CameraActivity extends AppCompatActivity {
 
         getSupportActionBar().hide();
 
+        mainLayout = findViewById(R.id.cameraFullScreen);
+
         textureView = findViewById(R.id.view_finder);
-        int size  = Resources.getSystem().getDisplayMetrics().widthPixels;
+        int size  = 500;//Resources.getSystem().getDisplayMetrics().widthPixels;
         textureView.getLayoutParams().width = size;
         textureView.getLayoutParams().height = size;
 
@@ -61,42 +88,158 @@ public class CameraActivity extends AppCompatActivity {
         }
 
         SERVER_IP = "192.168.43.15";
-        SERVER_PORT = 7000;
+        SERVER_PORT = 7100;
 
         connObj = new Communicate(SERVER_IP, SERVER_PORT);
 
+
+        /* Initializing the TTS engine and hooking a listener to it. */
+
+        tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if(status != TextToSpeech.ERROR){
+                    int result = tts.setLanguage(Locale.ENGLISH);
+                    if (result  == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED){
+
+                        ttsStatus = "LANG_UNSUPPORTED";
+                    }
+                    else{
+                        ttsStatus = "SUCCESS";
+                        tts.setSpeechRate((float)2.5);
+                    }
+                }
+
+            }
+        });
+
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+
+        /* Initializing the STT engine and hooking a listener to it. */
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        speechRecognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        speechRecognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+
+
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(Bundle params) {}
+            @Override
+            public void onBeginningOfSpeech() {}
+            @Override
+            public void onRmsChanged(float rmsdB) {}
+            @Override
+            public void onBufferReceived(byte[] buffer) {}
+            @Override
+            public void onEndOfSpeech() {}
+            @Override
+            public void onError(int error) {}
+            @Override
+            public void onResults(Bundle bundle) {
+                //Getting all the matches
+                ArrayList<String> matches = bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+
+                //Storing the first most confident match
+                if (matches != null) {
+                    speechText = matches.get(0);
+
+                    switch (clickType)
+                    {
+                        /* Send the captured image along with the command on user tap. */
+                        case 1:
+                            ByteArrayOutputStream data = new ByteArrayOutputStream();
+                            try {
+                                data.write(imgBytes);
+                                data.write("mof".getBytes());
+                                data.write(speechText.getBytes());
+
+                                byte[] out = data.toByteArray();
+
+                                sendDataThread = new Communicate.SendData(out);
+                                sendDataThread.start();
+
+                                String msg = connObj.getMessage();
+                                speakText(msg);
+
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+
+                            break;
+
+                        /* Ignore the voice command if the user double taps. */
+                        case 2: break;
+                    }
+                }
+            }
+            @Override
+            public void onPartialResults(Bundle bundle) {}
+            @Override
+            public void onEvent(int i, Bundle bundle) {}
+
+        });
+
     }
 
-    private void screenTapListener()
+    /*-------------------------------------------------------------------------------------------------------------------------*/
+
+    private void screenTapListener(Boolean singleClick)
     {
-        if(connObj.connectionStatus.equals("SUCCESS"))
+
+        if(singleClick)
         {
-            imgCap.takePicture(new ImageCapture.OnImageCapturedListener() {
-                @Override
-                public void onCaptureSuccess(ImageProxy image, int rotationDegrees) {
-                    super.onCaptureSuccess(image, rotationDegrees);
+            clickType = 1;
+            /* User taps to capture the image and simultaneously start the recording. */
+            if (!capturing)
+            {
+                /* Start capturing */
+                capturing = true;
 
-                    Bitmap bitmap = textureView.getBitmap();
-                    bitmap = Bitmap.createScaledBitmap(bitmap, 500, 500, true);
+                if(connObj.connectionStatus.equals("SUCCESS"))
+                {
+                    /* Capture image */
+                    imgCap.takePicture(new ImageCapture.OnImageCapturedListener() {
+                        @Override
+                        public void onCaptureSuccess(ImageProxy image, int rotationDegrees) {
+                            super.onCaptureSuccess(image, rotationDegrees);
 
-                    ByteArrayOutputStream baos=new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.PNG,100, baos);
-                    byte [] imgBytes = baos.toByteArray();
+                            Bitmap bitmap = textureView.getBitmap();
+                            //bitmap = Bitmap.createScaledBitmap(bitmap, 500, 500, true);
 
-                    sendDataThread = new Communicate.SendData(imgBytes);
-                    sendDataThread.start();
+                            ByteArrayOutputStream baos=new ByteArrayOutputStream();
+                            bitmap.compress(Bitmap.CompressFormat.PNG,100, baos);
+                            imgBytes = baos.toByteArray();
+                        }
+                    });
 
-                    String msg = connObj.getMessage();
-                    Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
+                    /* Start listening to the voice command. */
+                    speechRecognizer.startListening(speechRecognizerIntent);
                 }
-            });
+                else
+                {
+                    speakText("You are not connected to the server. Please reconnect to the server.");
+                    capturing = false;
+                }
+            }
+            else
+            {
+                /* Stop capturing */
+                capturing = false;
+
+                /* Stop listening to the voice command and send the captured image along with the voice command to the server */
+                speechRecognizer.stopListening();
+            }
         }
         else
         {
-            //Prompt for no connection
+            clickType=2;
+            capturing = false;
+            /* User double taps to capture the image again. Previous recording of the voice command needs to be ignored. */
+            speechRecognizer.stopListening();
         }
     }
-
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
 
@@ -148,42 +291,18 @@ public class CameraActivity extends AppCompatActivity {
 
         imgCap = new ImageCapture(imageCaptureConfig);
 
-        capture = findViewById(R.id.imgCapture);
-        capture.setOnClickListener(new View.OnClickListener() {
+        mainLayout.setOnClickListener(new DoubleClickListener() {
             @Override
-            public void onClick(View v) {
+            public void onDoubleClick() {
+                screenTapListener(false);
+            }
 
-                if(connObj.connectionStatus.equals("SUCCESS"))
-                {
-                    capture.setEnabled(false);
-
-                    imgCap.takePicture(new ImageCapture.OnImageCapturedListener() {
-                        @Override
-                        public void onCaptureSuccess(ImageProxy image, int rotationDegrees) {
-                            super.onCaptureSuccess(image, rotationDegrees);
-
-                            Bitmap bitmap = textureView.getBitmap();
-                            bitmap = Bitmap.createScaledBitmap(bitmap, 500, 500, true);
-
-                            ByteArrayOutputStream baos=new ByteArrayOutputStream();
-                            bitmap.compress(Bitmap.CompressFormat.PNG,100, baos);
-                            byte [] imgBytes = baos.toByteArray();
-
-                            sendDataThread = new Communicate.SendData(imgBytes);
-                            sendDataThread.start();
-
-                            String msg = connObj.getMessage();
-                            Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                    capture.setEnabled(true);
-                }
-                else
-                {
-                    //Prompt for no connection
-                }
+            @Override
+            public void onSingleClick() {
+                screenTapListener(true);
             }
         });
+
 
         //bind to lifecycle:
         CameraX.bindToLifecycle(this, preview, imgCap);
@@ -244,5 +363,88 @@ public class CameraActivity extends AppCompatActivity {
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
 
+    public void speakText(String text)
+    {
+        while(ttsStatus.equals("SUCCESS"))
+        {
+            /* For newer android versions. */
+            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP){
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+            }
 
+            /* For older android versions. */
+            else {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null);
+            }
+            break;
+        }
+    }
+
+    /*-------------------------------------------------------------------------------------------------------------------------*/
+
+    @Override
+    public void onPause() {
+
+        /* Disable TTS when your app is not in the foreground */
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+
+        }
+        super.onPause();
+    }
+
+    @Override
+    public void onDestroy() {
+
+        /* Disable TTS when your app is not in the foreground */
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+
+        }
+        super.onDestroy();
+    }
+
+    /*-------------------------------------------------------------------------------------------------------------------------*/
+}
+
+abstract class DoubleClickListener implements View.OnClickListener {
+    private static final long DEFAULT_QUALIFICATION_SPAN = 200;
+    private boolean isSingleEvent;
+    private long doubleClickQualificationSpanInMillis;
+    private long timestampLastClick;
+    private Handler handler;
+    private Runnable runnable;
+
+    public DoubleClickListener() {
+        doubleClickQualificationSpanInMillis = DEFAULT_QUALIFICATION_SPAN;
+        timestampLastClick = 0;
+        handler = new Handler();
+        runnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isSingleEvent) {
+                    onSingleClick();
+                }
+            }
+        };
+    }
+
+    @Override
+    public void onClick(View v) {
+        if((SystemClock.elapsedRealtime() - timestampLastClick) < doubleClickQualificationSpanInMillis) {
+            isSingleEvent = false;
+            handler.removeCallbacks(runnable);
+            onDoubleClick();
+            return;
+        }
+
+        isSingleEvent = true;
+        handler.postDelayed(runnable, DEFAULT_QUALIFICATION_SPAN);
+        timestampLastClick = SystemClock.elapsedRealtime();
+    }
+
+    public abstract void onDoubleClick();
+    public abstract void onSingleClick();
 }
