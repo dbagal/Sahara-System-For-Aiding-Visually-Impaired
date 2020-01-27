@@ -6,6 +6,7 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.media.AudioManager;
+import android.media.Image;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -14,6 +15,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.util.Rational;
 import android.util.Size;
 import android.view.Surface;
@@ -50,21 +52,19 @@ public class CameraActivity extends AppCompatActivity {
     public static Communicate connObj;
     public static Communicate.SendData sendDataThread;
     public ImageCapture imgCap;
-    public TextToSpeech tts;
-    public String ttsStatus;
+    public static TextToSpeech tts;
+    public static String ttsStatus;
     public SpeechRecognizer speechRecognizer;
     public Intent speechRecognizerIntent;
     public String speechText;
     public ConstraintLayout mainLayout;
     public Boolean capturing;
     public byte [] imgBytes;
-    public Boolean imageCaptured;
     public int clickType;
 
     public CameraActivity()
     {
         capturing = false;
-        imageCaptured = false;
     }
 
     @Override
@@ -77,7 +77,7 @@ public class CameraActivity extends AppCompatActivity {
         mainLayout = findViewById(R.id.cameraFullScreen);
 
         textureView = findViewById(R.id.view_finder);
-        int size  = 500;//Resources.getSystem().getDisplayMetrics().widthPixels;
+        int size  = 500; //Resources.getSystem().getDisplayMetrics().widthPixels;
         textureView.getLayoutParams().width = size;
         textureView.getLayoutParams().height = size;
 
@@ -145,33 +145,30 @@ public class CameraActivity extends AppCompatActivity {
                 if (matches != null) {
                     speechText = matches.get(0);
 
-                    switch (clickType)
+                    if(clickType==1)
                     {
                         /* Send the captured image along with the command on user tap. */
-                        case 1:
-                            ByteArrayOutputStream data = new ByteArrayOutputStream();
-                            try {
-                                data.write(imgBytes);
-                                data.write("mof".getBytes());
-                                data.write(speechText.getBytes());
+                        ByteArrayOutputStream data = new ByteArrayOutputStream();
+                        try {
 
-                                byte[] out = data.toByteArray();
+                            data.write(imgBytes);
+                            data.write("mof".getBytes());
+                            data.write(speechText.getBytes());
 
-                                sendDataThread = new Communicate.SendData(out);
-                                sendDataThread.start();
+                            byte[] out = data.toByteArray();
 
-                                String msg = connObj.getMessage();
-                                speakText(msg);
+                            sendDataThread = new Communicate.SendData(out);
+                            sendDataThread.start();
 
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
+                            //String msg = Communicate.message;//connObj.getMessage();
 
-                            break;
 
-                        /* Ignore the voice command if the user double taps. */
-                        case 2: break;
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
                     }
+
                 }
             }
             @Override
@@ -202,8 +199,10 @@ public class CameraActivity extends AppCompatActivity {
                     /* Capture image */
                     imgCap.takePicture(new ImageCapture.OnImageCapturedListener() {
                         @Override
-                        public void onCaptureSuccess(ImageProxy image, int rotationDegrees) {
-                            super.onCaptureSuccess(image, rotationDegrees);
+                        public void onCaptureSuccess(ImageProxy imageProxy, int rotationDegrees) {
+                            super.onCaptureSuccess(imageProxy, rotationDegrees);
+
+                            //Image image = imageProxy.getImage();
 
                             Bitmap bitmap = textureView.getBitmap();
                             //bitmap = Bitmap.createScaledBitmap(bitmap, 500, 500, true);
@@ -211,6 +210,7 @@ public class CameraActivity extends AppCompatActivity {
                             ByteArrayOutputStream baos=new ByteArrayOutputStream();
                             bitmap.compress(Bitmap.CompressFormat.PNG,100, baos);
                             imgBytes = baos.toByteArray();
+
                         }
                     });
 
@@ -303,9 +303,8 @@ public class CameraActivity extends AppCompatActivity {
             }
         });
 
-
         //bind to lifecycle:
-        CameraX.bindToLifecycle(this, preview, imgCap);
+        CameraX.bindToLifecycle(this, imgCap, preview);
     }
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
@@ -363,20 +362,23 @@ public class CameraActivity extends AppCompatActivity {
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
 
-    public void speakText(String text)
+    public static void speakText(String text)
     {
-        while(ttsStatus.equals("SUCCESS"))
+        while(true)
         {
-            /* For newer android versions. */
-            if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP){
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
-            }
+            if(ttsStatus.equals("SUCCESS"))
+            {
+                /* For newer android versions. */
+                if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP){
+                    tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+                }
 
-            /* For older android versions. */
-            else {
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null);
+                /* For older android versions. */
+                else {
+                    tts.speak(text, TextToSpeech.QUEUE_FLUSH, null);
+                }
+                break;
             }
-            break;
         }
     }
 

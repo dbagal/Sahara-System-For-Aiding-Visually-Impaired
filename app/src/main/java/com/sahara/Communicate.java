@@ -9,7 +9,7 @@ import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.Socket;
 
- class Communicate
+class Communicate
 {
 
     public static String SERVER_IP;
@@ -59,7 +59,6 @@ import java.net.Socket;
                     input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
                     connectionStatus = "SUCCESS";
-                    new ReceiveData().start();
 
                     break;
                 }
@@ -67,41 +66,16 @@ import java.net.Socket;
                 {
                     connectionStatus = "FAILED";
                     e.printStackTrace();
-                }
-            }
-
-        }
-    }
-
-    /*-------------------------------------------------------------------------------------------------------------------------*/
-
-    class ReceiveData extends Thread
-    {
-        @Override
-        public void run()
-        {
-            while(true)
-            {
-                try
-                {
-                    String msg = input.readLine();
-
-                    if (msg != null)
-                    {
-                        message = msg;
-                        msgReceivedStatus = "RECEIVED";
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
                     }
                 }
-                catch (IOException e)
-                {
-                    e.printStackTrace();
-                }
             }
 
         }
     }
-
-
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
 
@@ -124,6 +98,23 @@ import java.net.Socket;
                     output.write(data );
                     output.write("eof".getBytes());
                     output.flush();
+
+                    String msg;
+
+                    while(true)
+                    {
+                        msg = input.readLine();
+
+                        if (msg!=null)
+                        {
+                            message = msg;
+                            msgReceivedStatus = "RECEIVED";
+                            break;
+                        }
+                    }
+
+                    CameraActivity.speakText(msg);
+
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -135,4 +126,3 @@ import java.net.Socket;
 
     /*-------------------------------------------------------------------------------------------------------------------------*/
 }
-
