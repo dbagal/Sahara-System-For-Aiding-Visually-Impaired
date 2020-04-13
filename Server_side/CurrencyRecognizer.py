@@ -19,28 +19,6 @@ class CurrencyRecognizer():
 		self.noOfClasses = len(self.classNames)
 
 
-	""" @input: [6,6,1,2,2,6]
-		@output: {2: [3, 4], 6: [0, 1, 5]} """
-	def groupDuplicates(self, dupList):
-		elemDict = dict()
-		for index, elem in enumerate(dupList):
-			indicesOfElem = elemDict.get(elem, None)
-			if indicesOfElem==None:
-				elemDict[elem] = [index, ]
-			else:
-				indicesOfElem.append(index)
-				elemDict[elem] = indicesOfElem
-		return elemDict
-
-
-	""" @parameters: 
-			pointList: [(5,3), (4,6), (7,8)]"""
-	def getMaxDist(self, pointList):
-		bboxes = np.array(pointList) 
-		distMatrix = np.asarray( [[np.linalg.norm(p1-p2) for p2 in bboxes] for p1 in bboxes] )
-		return np.max(distMatrix)
-
-
 	def getUniquenessThresh(self, predictions):
 		minDist = 99999
 		n = len(predictions)
