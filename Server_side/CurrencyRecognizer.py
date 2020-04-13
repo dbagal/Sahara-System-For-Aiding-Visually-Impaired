@@ -7,7 +7,6 @@ class CurrencyRecognizer():
 	
 	def __init__(self):
 		self.detectObj = DetectObject()
-		self.recognitionThresh = 0.6
 		self.uniquenessDist = 400
 
 
@@ -42,73 +41,75 @@ class CurrencyRecognizer():
 		return np.max(distMatrix)
 
 
-	def setUniquenessDist(self):
-		classIds = [prediction['classID'] for prediction in self.predictions]
-		bboxes = [ ( ( bbox['boundingBoxes'][0]+bbox['boundingBoxes'][2])/2, (bbox['boundingBoxes'][1]+bbox['boundingBoxes'][3])/2 ) \
-			for bbox in self.predictions ]
-		maxList = []
-		duplicates = self.groupDuplicates(classIds)
-		for _, dupIndices in duplicates.items():
-			maxDist = self.getMaxDist([bboxes[i] for i in dupIndices])
-			maxList.append(maxDist)
-		
-		try:
-			self.uniquenessDist = max(maxList)
-		except ValueError:
-			self.uniquenessDist = None
+	def getUniquenessThresh(self, predictions):
+		minDist = 99999
+		n = len(predictions)
 
+		distMatrix =dict()
+		for i in range(n):
+			for j in range(i, n):
+				boundingBoxes = predictions[i]['boundingBoxes']
+				centerCoords1 = ( (boundingBoxes[0]+boundingBoxes[2])/2, (boundingBoxes[1]+boundingBoxes[3])/2  )
+				boundingBoxes = predictions[j]['boundingBoxes']
+				centerCoords2 = ( (boundingBoxes[0]+boundingBoxes[2])/2, (boundingBoxes[1]+boundingBoxes[3])/2  )
+				dist = np.linalg.norm(np.array(centerCoords1) - np.array(centerCoords2) )
 
-	def giveTotalCount(self, image):
+				distMatrix[(i,j)] = dist
+
+				if dist<minDist:
+					minDist = dist
+		""" 1.5 times the minimum distance is the uniqueness threshold. """
+		return distMatrix, minDist*1.5 
+	
+	def giveTotal(self, image):
 		self.currencyDetections = dict()
 		self.predictions = self.detectObj.detect(image)
-		self.setUniquenessDist()
+		""" @example self.predictions = [{'classID': 3, 'confidence': 0.9957972764968872, 'boundingBoxes': (201, 282, 282, 339)}, {'classID': 5, 'confidence': 0.8785867691040039, 'boundingBoxes': (232, 157, 318, 213)}]  """
+		
+		distMatrix, minDist = self.getUniquenessThresh(self.predictions)
+		
+		n = len(self.predictions)
 
-		if self.uniquenessDist != None:
+		for i in range(n):
+			pointInNeighbourhoodExists = False
+			for j in range(i,n):
+				dist = distMatrix[(i,j)]
+				if dist<=minDist:
+					pointInNeighbourhoodExists = True
+					break
+
+			if not pointInNeighbourhoodExists:
+				del self.predictions[i]
+
+		n = len(self.predictions)
+		totalAmount = 0
+		if n!=0:
+			currencyCount = dict()
+
 			for prediction in self.predictions:
-				classId = prediction['classID']
-				confidence = prediction['confidence']
-				boundingBoxes = prediction['boundingBoxes']
-				centerCoords = ( (boundingBoxes[0]+boundingBoxes[2])/2, (boundingBoxes[1]+boundingBoxes[3])/2  )
-				""" Update self.currencyDetections """
-				existingDetection = self.currencyDetections.get(classId, None)
-				if existingDetection==None:
-					count = 1
-					self.currencyDetections[classId] = (confidence, boundingBoxes, count)
+				amount = self.classNames[prediction["classID"]]
+				totalAmount += int(amount)
+				if currencyCount.get(amount, None)==None:
+					currencyCount[amount] = 1
 				else:
-					bboxes = existingDetection[1]
-					count = existingDetection[2]
-					existingCenterCoords = ( (bboxes[0]+bboxes[2])/2, (bboxes[1]+bboxes[3])/2 )
-					a = np.array(existingCenterCoords)
-					b = np.array(centerCoords)
-					dist = np.linalg.norm(a-b)
-					if dist<=self.uniquenessDist:
-						count+=1
-						self.currencyDetections[classId] = (confidence, boundingBoxes, count)
-			""" @example self.currencyDetections: {1: (0.9916291832923889, (129, 367, 177, 418), 3)} """
-			
-			totalAmount = 0
-			if len(self.currencyDetections)!=0:
-				reply = "I see "
-				for classid, value in self.currencyDetections.items():
-					currency = self.classNames[classid]
-					count = value[2]
-					totalAmount += int(currency)*count
-					if count==1:
-						text = str(count)+" note of"+" INR "+currency+", "
-					else:
-						text = str(count)+" notes of"+" INR "+currency+", "+"and the total amount is INR "+str(totalAmount)
+					currencyCount[amount] += 1
+
+			if n==1:
+				for currency, _ in currencyCount.items():
+					reply = "I see a note of INR "+currency
+					return reply
+			else:
+				reply = "I see in all "+str(len(self.predictions))+" notes of which "
+
+			""" @example currencyCount = {'10':2, '500':3} """
+			for currency, count in currencyCount.items():
+				if count==1:
+					text = str(count)+" is of"+" INR "+currency+", "
+				else:
+					text = str(count)+" are of"+" INR "+currency+", "
 				reply += text
 		else:
 			reply= "I am not able to detect the currency. Please try again"
 		return reply
 
-
-""" obj = CurrencyRecognizer()
-obj.configure("/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/yolov2-tiny_22700.weights", "/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/yolov2-tiny.cfg", ('100', '200', '500'))
-
-s = time.time()
-im = cv2.imread("/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/TestImages/20200128_213444.jpg")
-im = cv2.resize(im,(416,416))
-p = obj.giveTotalCount(im)
-print(p, time.time()-s) """
 
