@@ -14,6 +14,7 @@ class Server():
         self.port = portNo
         self.size = 4096
         self.sock=socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.host,self.port))
         self.sock.listen(1)
         self.conn, self.addr = self.sock.accept()
@@ -21,9 +22,9 @@ class Server():
 
         self.billReader = BillReader()
         self.currencyRecognizer = CurrencyRecognizer()
-        self.currencyRecognizer.configure("/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/DataFiles/yolov2-tiny_19100.weights",\
-             "/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/DataFiles/yolov2-tiny.cfg", \
-                 ('10','10','20','20','50','50','100','100','200','500','2000'))
+        self.currencyRecognizer.configure("/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/DataFiles/yolov3.weights",\
+             "/Users/dhavalbagal/Desktop/BE-PROJECT/Sahara/DataFiles/yolov3-tiny.cfg", \
+                 ('10','20','50','100','200','500','2000'))
         self.summarizer = Summarizer()
         self.textRecognizer = TextRecognizer()
         self.bot = Bot()
@@ -38,7 +39,7 @@ class Server():
                 if dataChunk.endswith(b"eof"):
                     data = data[:-3]
                     imgString, command = data.split(b"mof")
-                    nparr = np.fromstring(imgString, np.uint8)
+                    nparr = np.frombuffer(imgString, np.uint8)
                     image = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
                     break
         
@@ -53,7 +54,7 @@ class Server():
         intent, _ = self.bot.getIntent(command.decode("utf-8"))
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         if intent=="CurrencyRecognition":
-            msg = self.currencyRecognizer.giveTotalCount(image)
+            msg = self.currencyRecognizer.giveTotal(image)
         elif intent=="BillReading":
             msg = self.billReader.readBill(image)
         elif intent=="TextSummarization":

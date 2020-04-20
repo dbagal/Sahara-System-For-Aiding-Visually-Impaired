@@ -90,7 +90,7 @@ class DetectObject():
 		nmsOutput = cv2.dnn.NMSBoxes(boxes, confidences, self.confThreshold, self.nmsThreshold)
 		indices = list(map(lambda x: x[0], nmsOutput))
 		self.predictions = [self.predictions[i] for i in indices]
-
+		
 		""" self.predictions format => [{'classID': class_id, 'boundingBoxes': bbox_dimensions, 'confidence':confidence }] \
 			@example => [{'classID': 6, 'confidence': 0.8540265560150146, 'boundingBoxes': (160, -26, 1127, 847)}]"""
 		return self.predictions
